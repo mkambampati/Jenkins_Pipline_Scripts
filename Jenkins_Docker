@@ -1,0 +1,51 @@
+pipeline {
+    agent any
+    tools {
+        maven 'Maven'
+    }
+    options {
+        buildDiscarder logRotator(artifactDaysToKeepStr: '', artifactNumToKeepStr: '', daysToKeepStr: '30', numToKeepStr: '2')
+    }
+    environment {
+        dockerhub_cred = credentials('Dockerhub')
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scmGit(branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/DevopsWorking/addressbook.git']])
+            }
+        }
+        stage("Maven Build") {
+            steps {
+                sh "mvn package"
+            }
+        }
+        stage("Docker Image") {
+            steps {
+                sh "docker build -t mkambampatii/dockerproject:${BUILD_NUMBER} ."
+            }
+        }
+        stage("Docker Push") {
+            steps {
+                sh "echo $DOCKERHUB_CRED_PSW | docker login -u $DOCKERHUB_CRED_USR --password-stdin"
+                sh "docker push mkambampatii/dockerproject:${BUILD_NUMBER}"
+            }
+        }
+        stage("Docker Run") {
+            steps {
+                sh "docker run -d -p 80:8080 --name addressbook mkambampatii/dockerproject:${BUILD_NUMBER}"
+            }
+        }
+    }
+    post {
+        always {
+            echo "Job is completed"
+        }
+        success {
+            echo "Job is successful"
+        }
+        failure {
+            echo "Job has failed"
+        }
+    }
+}
