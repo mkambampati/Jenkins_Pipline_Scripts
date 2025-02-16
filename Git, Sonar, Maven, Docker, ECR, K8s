@@ -1,0 +1,66 @@
+pipeline {
+    agent any
+    environment {
+        cred = credentials('AWS_Key')
+    }
+    options {
+        buildDiscarder logRotator(artifactDaysToKeepStr: '', artifactNumToKeepStr: '', daysToKeepStr: '15', numToKeepStr: '2')
+        timeout(time: 30, unit: 'MINUTES')
+    }
+    tools {
+        maven 'maven'
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scmGit(branches: [[name: '*/main']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/mkambampati/Super-Project.git']])
+            }
+        }
+        stage('Sonar Analysis') {
+            steps {
+                script {
+                    def mvn = tool name: 'maven'
+                    withSonarQubeEnv(credentialsId: 'sonar') {
+                        sh "${mvn}/bin/mvn clean verify sonar:sonar -Dsonar.projectKey=superproject -Dsonar.projectName='superproject'"
+                    }
+                }
+            }
+        }
+        stage('Maven Build'){
+            steps{
+                sh 'mvn package'
+            }
+        }
+        stage('Docker Build'){
+            steps{
+                sh "docker build -t super_project ."
+            }
+        }
+        stage('Docker Push'){
+            steps{
+                sh "aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 961004540483.dkr.ecr.us-east-1.amazonaws.com"
+                sh "docker tag super_project:latest 961004540483.dkr.ecr.us-east-1.amazonaws.com/super_project:latest"
+                sh "docker push 961004540483.dkr.ecr.us-east-1.amazonaws.com/super_project:latest"
+                sh "docker tag super_project:latest 961004540483.dkr.ecr.us-east-1.amazonaws.com/super_project:${BUILD_NUMBER}"
+                sh "docker push 961004540483.dkr.ecr.us-east-1.amazonaws.com/super_project:${BUILD_NUMBER}"
+            }
+        }
+        stage('K8s Deployment'){
+            steps{
+                sh "aws eks update-kubeconfig --region us-east-1 --name madhu"
+                sh "kubectl apply --validate=false -f Application.yaml"
+            }
+        }
+    }
+    post {
+        always {
+            echo 'job completed'// One or more steps need to be included within each condition's block.
+        }
+        success {
+            echo 'job success'// One or more steps need to be included within each condition's block.
+        }
+        failure {
+            echo 'job failed'// One or more steps need to be included within each condition's block.
+        }
+    }
+}
